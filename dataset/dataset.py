@@ -116,7 +116,7 @@ class TreeDataSet(Dataset):
             bad_desc_len = min(int(bad_len), self.max_desc_len)
             bad_desc = bad2long
 
-            bad_desc = self.pad_seq(bad_desc, self.max_desc_len)
+            bad_desc = self.pad_seq(bad_desc , self.max_desc_len)
 
             return seq_tensor, rel_par, rel_bro, rel_semantic, good_desc, good_desc_len, bad_desc, bad_desc_len
         return seq_tensor, rel_par, rel_bro, rel_semantic

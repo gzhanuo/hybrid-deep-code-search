@@ -5,6 +5,8 @@ import time
 from datetime import datetime
 import numpy as np
 import math
+import torch.nn.functional as F
+import torch as T
 import argparse
 random.seed(42)
 from tqdm import tqdm
@@ -82,7 +84,7 @@ def train(args, ast2id, code2id, nl2id, id2nl):
     data_loader = torch.utils.data.DataLoader(dataset=train_set, batch_size=config['batch_size'], 
                                        shuffle=True, drop_last=True, num_workers=1)
     '''
-    train_data_set = TreeDataSet(file_name=args.data_dir + '/train.json',
+    train_data_set = TreeDataSet(file_name=args.data_dir + '/train2.json',
 
                                  ast_path=args.data_dir + '/tree/train/',
                                  ast2id=ast2id,
@@ -108,19 +110,21 @@ def train(args, ast2id, code2id, nl2id, id2nl):
     model = getattr(models, args.model)(config, ast2id)#initialize the model
     
     def save_model(model, ckpt_path):
-        torch.save(model.state_dict(), ckpt_path)
-
+        # torch.save(model.state_dict(), ckpt_path)
+        torch.save(model,ckpt_path)
     def load_model(model, ckpt_path, to_device):
         assert os.path.exists(ckpt_path), f'Weights not found'
         model.load_state_dict(torch.load(ckpt_path, map_location=to_device))
-        
+
     if args.reload_from>0:
         ckpt = f'./output/{args.model}/{args.dataset}/models/step{args.reload_from}.h5'
-        load_model(model, ckpt, device)    
-        
+        # load_model(model, ckpt, device)
+        model=torch.load(ckpt)
+    else:
+        model.to(device)
     if IS_ON_NSML:
         bind_nsml(model)
-    model.to(device)    
+    # model.to(device)
     
     ###############################################################################
     # Prepare the Optimizer
@@ -157,7 +161,7 @@ def train(args, ast2id, code2id, nl2id, id2nl):
             model.train()
             batch_gpu = [tensor.to(device).long() for tensor in batch]
             loss = model(*batch_gpu)
-
+            print(loss)
             # code_repr=normalize(code_repr.data.cpu().numpy().astype(np.float32))
             # desc_repr = normalize(desc_repr.data.cpu().numpy().astype(np.float32))
             # code_reprs.append(code_repr)
@@ -261,7 +265,7 @@ def validate(model, pool_size, K, sim_measure):
 
     model.eval()
     device = next(model.parameters()).device
-    valid_data_set = TreeDataSet(file_name=args.data_dir + '/train.json',
+    valid_data_set = TreeDataSet(file_name=args.data_dir + '/valid2.json',
                                  ast_path=args.data_dir + '/tree/train/',
                                  ast2id=ast2id,
                                  nl2id=nl2id,
@@ -278,37 +282,45 @@ def validate(model, pool_size, K, sim_measure):
                                shuffle=False,
 
                                num_workers=2)
-    accs, mrrs, maps, ndcgs=[],[],[],[]
+    accs, mrrs, maps, ndcgs,accs2=[],[],[],[],[]
     code_reprs, desc_reprs = [], []
     n_processed = 0
     for batch in tqdm(data_loader):
-        if len(batch) == 8: # seq_tensor, rel_par, rel_bro, rel_semantic, descs, desc_len, bad_descs, bad_desc_len
-            code_batch = [tensor.to(device).long() for tensor in batch[:4]]
-            desc_batch = [tensor.to(device).long() for tensor in batch[4:6]]
-        with torch.no_grad():
 
-            code_repr=addCodeMaskToCalcuCodeRepr(model,*code_batch).data.cpu().numpy().astype(np.float32)
-            desc_repr=model.desc_encoding(*desc_batch).data.cpu().numpy().astype(np.float32) # [poolsize x hid_size]
-            if sim_measure=='cos':
-                code_repr = normalize(code_repr)
-                desc_repr = normalize(desc_repr)
-        code_reprs.append(code_repr)
-        desc_reprs.append(desc_repr)
+        with torch.no_grad():
+            batch_gpu = [tensor.to(device).long() for tensor in batch]
+            code_repr=model.getcodevec(*batch_gpu)
+            desc_repr=model.getdescvec(*batch_gpu)
+            x=code_repr.size()[0]
+            # print(desc_repr)
+            # print("_______________________________________________________________________________________\n")
+        for i in range(0,x-1):#6 is the batchsize-1
+            code_reprs.append(code_repr[i])
+            desc_reprs.append(desc_repr[i])
         n_processed += batch[0].size(0)
-    code_reprs, desc_reprs = np.vstack(code_reprs), np.vstack(desc_reprs)
+    #code_reprs, desc_reprs = np.vstack(code_reprs), np.vstack(desc_reprs)
     n_processed-=(n_processed%100)
     for k in tqdm(range(0, n_processed-pool_size, pool_size)):
         code_pool, desc_pool = code_reprs[k:k+pool_size], desc_reprs[k:k+pool_size]
         sum=0.0
-        for i in range(min(10000, pool_size)): # for i in range(pool_size):
-            desc_vec = np.expand_dims(desc_pool[i], axis=0) # [1 x dim]
-            n_results = K    
-            if sim_measure=='cos':
-                sims = np.dot(code_pool, desc_vec.T)[:,0] # [pool_size]
-            else:
-                sims = similarity(code_pool, desc_vec, sim_measure) # [pool_size]
-            if sims[i] > 0.4:
-                sum += 1;
+        sum2=0.0
+
+        for i in range(min(100000, pool_size)): # for i in range(pool_size):
+            desc_vec = desc_pool[i] # [1 x dim]
+            n_results = K
+            desc_vec = T.stack([desc_vec, desc_vec], dim=0)
+            sims = []
+            for l in range(0,pool_size-1):
+
+                codetemp=T.stack([code_pool[l],code_pool[l]],dim=0)
+                anchor_sim = F.cosine_similarity(codetemp, desc_vec)
+
+                sim = (0.1 + anchor_sim).clamp(min=1e-6).mean()
+
+                # sims.append(anchor_sim.mean())
+                sims.append(sim)
+            print(sims)
+
             # negsims=np.negative(sims.T)
             # predict = np.argpartition(negsims, kth=n_results-1)#predict=np.argsort(negsims)#
             # predict = predict[:n_results]
@@ -323,11 +335,16 @@ def validate(model, pool_size, K, sim_measure):
             #     if index != -1: sum = sum + 1
 
         accs.append(sum/float(pool_size))
+        accs2.append(sum2 / float(pool_size))
+        sum3=0.0
+        for j in range(0,i):
+            sum3+=sims[j];
+        sum3=sum3/i
             # accs.append(ACC(real,predict))
             # mrrs.append(MRR(real,predict))
             # maps.append(MAP(real,predict))
             # ndcgs.append(NDCG(real,predict))
-    return {'acc':np.mean(accs), 'err': 1-np.mean(accs)}
+    return {'acc':np.mean(accs),'acc2':np.mean(accs2),'sum3':sum3,'err': 1-np.mean(accs)}
 def addCodeMaskToCalcuCodeRepr(model,code, relative_par_ids, relative_bro_ids, semantic_ids):
     relative_par_mask = relative_par_ids == 0
     relative_bro_mask = relative_bro_ids == 0
@@ -345,8 +362,8 @@ def parse_args():
     parser.add_argument('--automl', action='store_true', default=False, help='use automl')
     # Training Arguments
     parser.add_argument('--log_every', type=int, default=100, help='interval to log autoencoder training results')
-    parser.add_argument('--valid_every', type=int, default=100, help='interval to validation')
-    parser.add_argument('--save_every', type=int, default=10000, help='interval to evaluation to concrete results')
+    parser.add_argument('--valid_every', type=int, default=2000, help='interval to validation')
+    parser.add_argument('--save_every', type=int, default=1000, help='interval to evaluation to concrete results')
     parser.add_argument('--seed', type=int, default=1111, help='random seed')
         
     parser.add_argument("--local_rank", type=int, default=-1, help="For distributed training: local_rank")
@@ -417,7 +434,7 @@ if __name__ == '__main__':
     
     torch.backends.cudnn.benchmark = True # speed up training by using cudnn
     torch.backends.cudnn.deterministic = True # fix the random seed in cudnn
-   
+
     train(args,ast2id,code2id,nl2id,i2nl)
         
     

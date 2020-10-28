@@ -1,7 +1,7 @@
 import os
 import sys
 import numpy as np
-
+import random
 import torch
 import torch.nn as nn
 import torch.nn.init as weight_init
@@ -116,6 +116,8 @@ class JointEmbeder(nn.Module):
     
     def forward(self, code, relative_par_ids, relative_bro_ids, semantic_ids, desc_anchor, desc_anchor_len, desc_neg, desc_neg_len):
         batch_size=code.size(0)
+        rand=random.randint(0,1)
+        #0:neg   1:pos
         ###############code_repr=self.code_encoding(name, name_len, apiseq, api_len, tokens, tok_len)
         relative_par_mask = relative_par_ids == 0
         relative_bro_mask = relative_bro_ids == 0
@@ -127,7 +129,67 @@ class JointEmbeder(nn.Module):
     
         anchor_sim = self.similarity(code_repr, desc_anchor_repr)
         neg_sim = self.similarity(code_repr, desc_neg_repr) # [batch_sz x 1]
-        
-        loss=(self.margin-anchor_sim+neg_sim).clamp(min=1e-6).mean()
-        
+
+        loss = (self.margin+neg_sim-anchor_sim).clamp(min=1e-6).mean()
+            #print("0")
+            #print("neg:")
+            #print(neg_sim)
+        # else:
+        #     loss=(self.margin-anchor_sim).clamp(min=1e-6).mean()
+        #     #print("1")
+        #     #print("pos:")
+        #     #print(anchor_sim)
         return loss
+
+    def forward2(self, code, relative_par_ids, relative_bro_ids, semantic_ids, desc_anchor, desc_anchor_len, desc_neg,
+                desc_neg_len):
+        batch_size = code.size(0)
+        rand = random.randint(0, 1)
+        # 0:neg   1:pos
+        ###############code_repr=self.code_encoding(name, name_len, apiseq, api_len, tokens, tok_len)
+        relative_par_mask = relative_par_ids == 0
+        relative_bro_mask = relative_bro_ids == 0
+        semantic_mask = semantic_ids == 0
+        code_mask = relative_mask([relative_par_mask, relative_bro_mask, semantic_mask], 6)
+        code_repr = self.code_encoding(code, relative_par_ids, relative_bro_ids, semantic_ids, code_mask)
+        desc_anchor_repr = self.desc_encoding(desc_anchor, desc_anchor_len)
+        # desc_neg_repr = self.desc_encoding(desc_neg, desc_neg_len)
+
+        anchor_sim = self.similarity(code_repr, desc_anchor_repr)
+        # neg_sim = self.similarity(code_repr, desc_neg_repr)  # [batch_sz x 1]
+
+        return anchor_sim
+    def getcodevec(self, code, relative_par_ids, relative_bro_ids, semantic_ids, desc_anchor, desc_anchor_len, desc_neg,
+                desc_neg_len):
+        batch_size = code.size(0)
+        rand = random.randint(0, 1)
+        # 0:neg   1:pos
+        ###############code_repr=self.code_encoding(name, name_len, apiseq, api_len, tokens, tok_len)
+        relative_par_mask = relative_par_ids == 0
+        relative_bro_mask = relative_bro_ids == 0
+        semantic_mask = semantic_ids == 0
+        code_mask = relative_mask([relative_par_mask, relative_bro_mask, semantic_mask], 6)
+        code_repr = self.code_encoding(code, relative_par_ids, relative_bro_ids, semantic_ids, code_mask)
+        desc_anchor_repr = self.desc_encoding(desc_anchor, desc_anchor_len)
+        desc_neg_repr = self.desc_encoding(desc_neg, desc_neg_len)
+
+        anchor_sim = self.similarity(code_repr, desc_anchor_repr)
+
+        return code_repr
+    def getdescvec(self, code, relative_par_ids, relative_bro_ids, semantic_ids, desc_anchor, desc_anchor_len, desc_neg,
+                desc_neg_len):
+        batch_size = code.size(0)
+        rand = random.randint(0, 1)
+        # 0:neg   1:pos
+        ###############code_repr=self.code_encoding(name, name_len, apiseq, api_len, tokens, tok_len)
+        relative_par_mask = relative_par_ids == 0
+        relative_bro_mask = relative_bro_ids == 0
+        semantic_mask = semantic_ids == 0
+        code_mask = relative_mask([relative_par_mask, relative_bro_mask, semantic_mask], 6)
+        code_repr = self.code_encoding(code, relative_par_ids, relative_bro_ids, semantic_ids, code_mask)
+        desc_anchor_repr = self.desc_encoding(desc_anchor, desc_anchor_len)
+        desc_neg_repr = self.desc_encoding(desc_neg, desc_neg_len)
+
+        anchor_sim = self.similarity(code_repr, desc_anchor_repr)
+
+        return desc_anchor_repr

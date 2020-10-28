@@ -14,7 +14,7 @@ def config_JointEmbeder():
             'valid_tokens':'test.tokens.h5',
             'valid_desc':'test.desc.h5',
             'pool_size':100,
-            'top_k':50,
+            'top_k':20,
             #use data (computing code vectors)
             'use_codebase':'use.rawcode.txt',#'use.rawcode.h5'
             'use_names':'use.name.h5',

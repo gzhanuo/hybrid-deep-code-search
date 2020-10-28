@@ -224,7 +224,6 @@ class Encoder(nn.Module):
             code, attn = layer(code, code_mask, relative_k_emb, relative_v_emb)
         a=[]
         for i in range(len(code)):
-
             a.append(torch.mean(code[i],dim=0,keepdim=False))
         tup=(a[0],)
         for i in range(1,len(a)):
@@ -232,12 +231,13 @@ class Encoder(nn.Module):
             tup=tup+tupsub
 
         coderesult=torch.stack(tup, 0)
-            #code[i]=code[i].reshape(1,-1)
-        # codeave=torch.mean(code[0],dim=0,keepdim=True)
-        # coderoot=code[0][0].reshape(1,-1)
-
+        # first_code_states  = code[:, 0, :]
+        # return self.norm(first_code_states)
         return self.norm(coderesult)
 
+        # code[i]=code[i].reshape(1,-1)
+        # codeave=torch.mean(code[0],dim=0,keepdim=True)
+        # coderoot=code[0][0].reshape(1,-1)
 
 class EncoderLayer(nn.Module):
     def __init__(self, size, self_attn, feed_forward, dropout):
