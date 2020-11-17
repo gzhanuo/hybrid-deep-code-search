@@ -11,7 +11,8 @@ logging.basicConfig(level=logging.INFO, format="%(message)s")
 from tensorboardX import SummaryWriter # install tensorboardX (pip install tensorboardX) before importing this package
 
 import torch
-
+import json
+from flask import Flask, request, jsonify
 from utils import normalize, similarity, sent2indexes
 from data_loader import load_dict, load_vecs
 import models, configs
@@ -41,7 +42,7 @@ from data_loader import *
 from dataset.my_data_loader import DataLoaderX
 from dataset.dataset import TreeDataSet
 from model.utils import gelu, subsequent_mask, clones, relative_mask
-os.chdir("C:/Users/Administrator/PycharmProjects/pytorch")
+# os.chdir("C:/Users/Administrator/PycharmProjects/pytorch")
 codevecs, codebase = [], []
 
 ##### Data Set #####   
@@ -140,12 +141,13 @@ def postproc(codes_sims):
         if not is_dup:
             final_codes.append(codes[i])
             final_sims.append(sims[i])
-    return zip(final_codes,final_sims)
+    # return zip(final_codes,final_sims)
+    return final_codes
     
 def parse_args():
     parser = argparse.ArgumentParser("Train and Test Code Search(Embedding) Model")
     parser.add_argument('--data_path', type=str, default='./data/', help='location of the data corpus')
-    parser.add_argument('--reload_from', type=int, default=-1, help='epoch to reload from')
+    parser.add_argument('--reload_from', type=int, default=420000, help='epoch to reload from')
 
     parser.add_argument('--gpu_id', type=int, default=0, help='GPU ID')
     parser.add_argument('--visual', default=False, help="Visualize training status in tensorboard")
@@ -228,8 +230,8 @@ if __name__ == '__main__':
     logger.info('Constructing Model..')
     model = getattr(models, args.model)(config, ast2id)#initialize the model
     ckpt=f'./output/{args.model}/{args.dataset}/models/step{args.reload_from}.h5'
-    model.load_state_dict(torch.load(ckpt, map_location=device))
-    
+    # model.load_state_dict(torch.load(ckpt, map_location=device))
+    model = torch.load(ckpt, map_location="cpu")
     data_path = args.data_path+args.datasave+'/'
     
     vocab_desc = load_dict(data_path+config['vocab_desc'])
@@ -238,19 +240,50 @@ if __name__ == '__main__':
     assert len(codebase)==len(codevecs), \
          "inconsistent number of chunks, check whether the specified files for codebase and code vectors are correct!"    
     
-    while True:
-        try:
-            query = input('Input Query: ')
-            n_results = int(input('How many results? '))
-        except Exception:
-            print("Exception while parsing your input:")
-            traceback.print_exc()
-            break
-        query = query.lower().replace('how to ', '').replace('how do i ', '').replace('how can i ', '').replace('?', '').strip()
-        results = search(config, model, vocab_desc, query, n_results)
-        results = sorted(results, reverse=True, key=lambda x:x[1])
-        results = postproc(results)
-        results = list(results)[:n_results]
-        results = '\n\n'.join(map(str,results)) #combine the result into a returning string
-        print(results)
+    # while True:
+    #     try:
+    #         query = input('Input Query: ')
+    #         n_results = int(input('How many results? '))
+    #     except Exception:
+    #         print("Exception while parsing your input:")
+    #         traceback.print_exc()
+    #         break
+    #     query = query.lower().replace('how to ', '').replace('how do i ', '').replace('how can i ', '').replace('?', '').strip()
+    #     results = search(config, model, vocab_desc, query, n_results)
+    #     results = sorted(results, reverse=True, key=lambda x:x[1])
+    #     results = postproc(results)
+    #     results = list(results)[:n_results]
+    #     results = '\n\n'.join(map(str,results)) #combine the result into a returning string
+    #     print(results)
 
+    app = Flask(__name__)
+
+    def request_parse(req_data):
+        if req_data.method == "POST":
+            print("POST")
+            data = req_data.form
+        elif req_data.method == "GET":
+            print("GET")
+            data = req_data.args
+        return data
+
+    @app.route("/", methods=["GET", "POST"])
+    def get_data():
+        data = request_parse(request)
+        query = data.get("query")
+        len = data.get("len")
+        if query is None or query == "":
+            return json.dumps([])
+        if len is None or len == "":
+            len = 10
+        else:
+            len = int(len)
+        results = search(config, model, vocab_desc, query, len)
+        results = sorted(results, reverse=True, key=lambda x: x[1])
+        results = postproc(results)
+        results = list(results)[:len]
+        # results = '\n\n'.join(map(str, results))
+        results = json.dumps(results)
+        return results
+
+    app.run(host="0.0.0.0", port=5000)

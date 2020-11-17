@@ -71,25 +71,46 @@ class TreeDataSet(Dataset):
         seq=seq[:maxlen]
         return seq
     def __getitem__(self, index):
+        #--------------------------------------negcodes----------------------------------
+        #1
+        rand_offsetcode = random.randint(0, self.len - 1)
+        negast_num = self.data_set[rand_offsetcode]['ast_num']
+        negast = read_pickle(self.ast_path + negast_num)
+        negseq, negrel_par, negrel_bro, negrel_semantic, negsemantic_convert_matrix, negsemantic_mask = traverse_tree_to_generate_matrix(
+            negast, self.max_ast_size, self.k, self.max_simple_name_size)
+        negseq_id = [self.ast2id[x] if x in self.ast2id else self.ast2id['<UNK>'] for x in negseq]
+        negseq_tensor = torch.LongTensor(negseq_id)
+        #2
+        rand_offsetcode2 = random.randint(0, self.len - 1)
+        negast_num2 = self.data_set[rand_offsetcode2]['ast_num']
+        negast2 = read_pickle(self.ast_path + negast_num2)
+        negseq2, negrel_par2, negrel_bro2, negrel_semantic2, negsemantic_convert_matrix2, negsemantic_mask2 = traverse_tree_to_generate_matrix(
+            negast2, self.max_ast_size, self.k, self.max_simple_name_size)
+        negseq_id2 = [self.ast2id[x] if x in self.ast2id else self.ast2id['<UNK>'] for x in negseq2]
+        negseq_tensor2 = torch.LongTensor(negseq_id2)
+        #3
+        rand_offsetcode3 = random.randint(0, self.len - 1)
+        negast_num3 = self.data_set[rand_offsetcode3]['ast_num']
+        negast3 = read_pickle(self.ast_path + negast_num3)
+        negseq3, negrel_par3, negrel_bro3, negrel_semantic3, negsemantic_convert_matrix3, negsemantic_mask3 = traverse_tree_to_generate_matrix(
+            negast3, self.max_ast_size, self.k, self.max_simple_name_size)
+        negseq_id3 = [self.ast2id[x] if x in self.ast2id else self.ast2id['<UNK>'] for x in negseq3]
+        negseq_tensor3 = torch.LongTensor(negseq_id3)
+
+
+        #------------------------------poscode---------------------------------
         data = self.data_set[index]
         ast_num = data['ast_num']
         nl = data['nl']
-        '''
-         nl:["<s>", "returns", "a", "0", "-", "based", "depth", "within", "the", "object", "graph", "of", "the", "current", "object", "being", "serialized", "</s>"]
-
-
-        '''
-
         ast = read_pickle(self.ast_path + ast_num)
         seq, rel_par, rel_bro, rel_semantic, semantic_convert_matrix, semantic_mask = traverse_tree_to_generate_matrix(ast, self.max_ast_size, self.k, self.max_simple_name_size)
-
         seq_id = [self.ast2id[x] if x in self.ast2id else self.ast2id['<UNK>'] for x in seq]
         #nl_id = [self.nl2id[x] if x in self.nl2id else self.nl2id['<UNK>'] for x in nl]
-
         """to tensor"""
         seq_tensor = torch.LongTensor(seq_id)
         #nl_tensor = torch.LongTensor(pad_seq(nl_id, self.max_comment_size).long())
-
+        #print(nl)
+        #print("\n")
 
         if self.training:
             #good desc
@@ -98,7 +119,8 @@ class TreeDataSet(Dataset):
             nl_len=len(nl)
             for i in range(nl_len):
                 nl[i]=vocab_desc.get(nl[i], 3)
-
+            #print(nl)
+            #print("\n")
             #nl2index, nl_len = sent2indexes(nl, vocab_desc, 30)
             nl2long = np.array(nl).astype(np.long)
             good_desc_len = min(int(nl_len), self.max_desc_len)
@@ -116,9 +138,9 @@ class TreeDataSet(Dataset):
             bad_desc_len = min(int(bad_len), self.max_desc_len)
             bad_desc = bad2long
 
-            bad_desc = self.pad_seq(bad_desc , self.max_desc_len)
+            bad_desc = self.pad_seq(bad_desc, self.max_desc_len)
 
-            return seq_tensor, rel_par, rel_bro, rel_semantic, good_desc, good_desc_len, bad_desc, bad_desc_len
+            return seq_tensor, rel_par, rel_bro, rel_semantic,negseq_tensor, negrel_par, negrel_bro, negrel_semantic, negseq_tensor2, negrel_par2, negrel_bro2, negrel_semantic2, negseq_tensor3, negrel_par3, negrel_bro3, negrel_semantic3, good_desc, good_desc_len, bad_desc, bad_desc_len
         return seq_tensor, rel_par, rel_bro, rel_semantic
 
     def __len__(self):

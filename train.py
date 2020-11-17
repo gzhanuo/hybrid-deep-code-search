@@ -30,7 +30,7 @@ try:
     from nsml import DATASET_PATH, IS_ON_NSML, SESSION_NAME
 except: 
     IS_ON_NSML = False
-os.chdir("C:/Users/Administrator/PycharmProjects/pytorch")
+# os.chdir("C:/Users/Administrator/PycharmProjects/pytorch")
 def bind_nsml(model, **kwargs):
     if type(model) == torch.nn.DataParallel: model = model.module
     def infer(raw_data, **kwargs):
@@ -84,7 +84,7 @@ def train(args, ast2id, code2id, nl2id, id2nl):
     data_loader = torch.utils.data.DataLoader(dataset=train_set, batch_size=config['batch_size'], 
                                        shuffle=True, drop_last=True, num_workers=1)
     '''
-    train_data_set = TreeDataSet(file_name=args.data_dir + '/train2.json',
+    train_data_set = TreeDataSet(file_name=args.data_dir + '/train.json',
 
                                  ast_path=args.data_dir + '/tree/train/',
                                  ast2id=ast2id,
@@ -161,13 +161,14 @@ def train(args, ast2id, code2id, nl2id, id2nl):
             model.train()
             batch_gpu = [tensor.to(device).long() for tensor in batch]
             loss = model(*batch_gpu)
-            print(loss)
+            # print(loss)
             # code_repr=normalize(code_repr.data.cpu().numpy().astype(np.float32))
             # desc_repr = normalize(desc_repr.data.cpu().numpy().astype(np.float32))
             # code_reprs.append(code_repr)
             # desc_reprs.append(desc_repr)
 
             #n_processed += batch[0].size(0)
+            model.zero_grad()
             if config['fp16']:
                 with amp.scale_loss(loss, optimizer) as scaled_loss:
                     scaled_loss.backward()
@@ -178,7 +179,7 @@ def train(args, ast2id, code2id, nl2id, id2nl):
                 
             optimizer.step()
             scheduler.step()
-            model.zero_grad()
+            # model.zero_grad()
             
             losses.append(loss.item())
             
@@ -199,8 +200,8 @@ def train(args, ast2id, code2id, nl2id, id2nl):
 
             if itr_global % args.valid_every == 0:
                 logger.info("validating..")
-                with torch.no_grad():
-                    valid_result = validate(model, config['pool_size'], config['top_k'], config['sim_measure'])
+                # with torch.no_grad():
+                valid_result = validate(model, config['pool_size'], config['top_k'], config['sim_measure'])
                 logger.info(valid_result)
                 if tb_writer is not None:
                     for key, value in valid_result.items():
@@ -210,9 +211,9 @@ def train(args, ast2id, code2id, nl2id, id2nl):
                     summary.update(valid_result)
                     nsml.report(**summary)
                 code_reprs, desc_reprs = [], []
-                    
+
             if itr_global % args.save_every == 0:
-                ckpt_path = f'./output/{args.model}/{args.dataset}/models/step{itr_global}.h5'
+                ckpt_path = f'./output/{args.model}/{args.dataset}/models/3step{itr_global}.h5'
                 save_model(model, ckpt_path)
                 if IS_ON_NSML:
                     nsml.save(checkpoint=f'model_step{itr_global}')
@@ -286,65 +287,64 @@ def validate(model, pool_size, K, sim_measure):
     code_reprs, desc_reprs = [], []
     n_processed = 0
     for batch in tqdm(data_loader):
-
         with torch.no_grad():
             batch_gpu = [tensor.to(device).long() for tensor in batch]
-            code_repr=model.getcodevec(*batch_gpu)
-            desc_repr=model.getdescvec(*batch_gpu)
-            x=code_repr.size()[0]
+            loss = model(*batch_gpu)
+            code_repr = model.getcodevec(*batch_gpu)
+            desc_repr = model.getdescvec(*batch_gpu)
+            x = code_repr.size()[0]
             # print(desc_repr)
             # print("_______________________________________________________________________________________\n")
-        for i in range(0,x-1):#6 is the batchsize-1
+        for i in range(0, x):  # 6 is the batchsize-1
             code_reprs.append(code_repr[i])
             desc_reprs.append(desc_repr[i])
         n_processed += batch[0].size(0)
-    #code_reprs, desc_reprs = np.vstack(code_reprs), np.vstack(desc_reprs)
-    n_processed-=(n_processed%100)
-    for k in tqdm(range(0, n_processed-pool_size, pool_size)):
-        code_pool, desc_pool = code_reprs[k:k+pool_size], desc_reprs[k:k+pool_size]
-        sum=0.0
-        sum2=0.0
+        # code_reprs, desc_reprs = np.vstack(code_reprs), np.vstack(desc_reprs)
+    n_processed -= (n_processed % 100)
+    # for k in tqdm(range(0, n_processed - pool_size, pool_size)):
+    #     code_pool, desc_pool = code_reprs[k:k + pool_size], desc_reprs[k:k + pool_size]
+    #     sum = 0.0
+    #     sum2 = 0.0
+    sum = 0.0
+    pool_size = 100  # random number of descs to cal the topk
+    for i in tqdm(range(0, pool_size)):
+        # for i in range(min(100000, pool_size)):  # for i in range(pool_size):
+        ii = random.randint(0, 1000)
+        sims = []
+        desc_vec = desc_reprs[ii]  # [1 x dim]
+        n_results = 20
+        desc_vec = T.stack([desc_vec, desc_vec], dim=0)
+        for l in range(0, 1000):
+            # for l in range(0, pool_size - 1):
+            codetemp = T.stack([code_reprs[l], code_reprs[l]], dim=0)
+            anchor_sim = F.cosine_similarity(codetemp, desc_vec)
 
-        for i in range(min(100000, pool_size)): # for i in range(pool_size):
-            desc_vec = desc_pool[i] # [1 x dim]
-            n_results = K
-            desc_vec = T.stack([desc_vec, desc_vec], dim=0)
-            sims = []
-            for l in range(0,pool_size-1):
+            sim = (0.1 + anchor_sim).clamp(min=1e-6).mean()
 
-                codetemp=T.stack([code_pool[l],code_pool[l]],dim=0)
-                anchor_sim = F.cosine_similarity(codetemp, desc_vec)
+            # sims.append(anchor_sim.mean())
+            sims.append(sim.item())
+        # print(sims)
 
-                sim = (0.1 + anchor_sim).clamp(min=1e-6).mean()
+        negsims = np.negative(sims)
+        predict = np.argpartition(negsims, kth=n_results - 1)  # predict=np.argsort(negsims)#
+        predict = predict[:n_results]
 
-                # sims.append(anchor_sim.mean())
-                sims.append(sim)
-            print(sims)
+        predict = [int(k) for k in predict]
+        real = [ii]
+        for val in real:
+            try:
+                index = predict.index(val)
+            except ValueError:
+                index = -1
+            if index != -1: sum = sum + 1
 
-            # negsims=np.negative(sims.T)
-            # predict = np.argpartition(negsims, kth=n_results-1)#predict=np.argsort(negsims)#
-            # predict = predict[:n_results]
-            #
-            # predict = [int(k) for k in predict]
-            # real = [i]
-            # for val in real:
-            #     try:
-            #         index = predict.index(val)
-            #     except ValueError:
-            #         index = -1
-            #     if index != -1: sum = sum + 1
-
-        accs.append(sum/float(pool_size))
-        accs2.append(sum2 / float(pool_size))
-        sum3=0.0
-        for j in range(0,i):
-            sum3+=sims[j];
-        sum3=sum3/i
-            # accs.append(ACC(real,predict))
-            # mrrs.append(MRR(real,predict))
-            # maps.append(MAP(real,predict))
-            # ndcgs.append(NDCG(real,predict))
-    return {'acc':np.mean(accs),'acc2':np.mean(accs2),'sum3':sum3,'err': 1-np.mean(accs)}
+    accs.append(sum / float(pool_size))
+    # accs.append(ACC(real,predict))
+    # mrrs.append(MRR(real,predict))
+    # maps.append(MAP(real,predict))
+    # ndcgs.append(NDCG(real,predict))
+    logger.info({'acc': np.mean(accs), 'err': 1 - np.mean(accs)})
+    return {'acc': np.mean(accs), 'err': 1 - np.mean(accs)}
 def addCodeMaskToCalcuCodeRepr(model,code, relative_par_ids, relative_bro_ids, semantic_ids):
     relative_par_mask = relative_par_ids == 0
     relative_bro_mask = relative_bro_ids == 0
@@ -362,8 +362,8 @@ def parse_args():
     parser.add_argument('--automl', action='store_true', default=False, help='use automl')
     # Training Arguments
     parser.add_argument('--log_every', type=int, default=100, help='interval to log autoencoder training results')
-    parser.add_argument('--valid_every', type=int, default=2000, help='interval to validation')
-    parser.add_argument('--save_every', type=int, default=1000, help='interval to evaluation to concrete results')
+    parser.add_argument('--valid_every', type=int, default=20000, help='interval to validation')
+    parser.add_argument('--save_every', type=int, default=20000, help='interval to evaluation to concrete results')
     parser.add_argument('--seed', type=int, default=1111, help='random seed')
         
     parser.add_argument("--local_rank", type=int, default=-1, help="For distributed training: local_rank")
@@ -387,7 +387,7 @@ def parse_args():
     ##############################################################################################################################
     #parser = argparse.ArgumentParser(description='tree transformer')
     parser.add_argument('-model_dir', default='train_model', help='output model weight dir')
-    parser.add_argument('-batch_size', type=int, default=7)
+    parser.add_argument('-batch_size', type=int, default=1)
     parser.add_argument('--model', type=str, default='JointEmbeder', help='model name')
     parser.add_argument('-num_step', type=int, default=250)
     parser.add_argument('-num_layers', type=int, default=2, help='layer num')
@@ -403,7 +403,7 @@ def parse_args():
     parser.add_argument('-k', type=int, default=5, help='relative window size')
     parser.add_argument('-max_simple_name_len', type=int, default=30, help='max simple name length')
 
-    parser.add_argument('-dropout', type=float, default=0.5)
+    parser.add_argument('-dropout', type=float, default=0.1)
 
     parser.add_argument('-load', action='store_true', help='load pretrained model')
     parser.add_argument('-train', action='store_true')

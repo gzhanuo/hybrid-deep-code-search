@@ -114,23 +114,60 @@ class JointEmbeder(nn.Module):
             elif self.conf['sim_measure']=='aesd':
                 return 0.5*(euc_sim+sigmoid_sim)
     
-    def forward(self, code, relative_par_ids, relative_bro_ids, semantic_ids, desc_anchor, desc_anchor_len, desc_neg, desc_neg_len):
+    def forward(self, code, relative_par_ids, relative_bro_ids, semantic_ids, negcode, negrelative_par_ids, negrelative_bro_ids, negsemantic_ids,negcode2, negrelative_par_ids2, negrelative_bro_ids2, negsemantic_ids2,negcode3, negrelative_par_ids3, negrelative_bro_ids3, negsemantic_ids3, desc_anchor, desc_anchor_len, desc_neg, desc_neg_len):
         batch_size=code.size(0)
         rand=random.randint(0,1)
+        negcode_repr = []
+        neg_sims = []
         #0:neg   1:pos
         ###############code_repr=self.code_encoding(name, name_len, apiseq, api_len, tokens, tok_len)
+        # --------------------------poscode and posdesc-------------------------------
         relative_par_mask = relative_par_ids == 0
         relative_bro_mask = relative_bro_ids == 0
         semantic_mask = semantic_ids == 0
-        code_mask=relative_mask([relative_par_mask, relative_bro_mask, semantic_mask], 6)
+        code_mask = relative_mask([relative_par_mask, relative_bro_mask, semantic_mask], 6)
         code_repr = self.code_encoding(code, relative_par_ids, relative_bro_ids, semantic_ids, code_mask)
-        desc_anchor_repr=self.desc_encoding(desc_anchor, desc_anchor_len)
-        desc_neg_repr=self.desc_encoding(desc_neg, desc_neg_len)
-    
+        desc_anchor_repr = self.desc_encoding(desc_anchor, desc_anchor_len)
+        # desc_neg_repr = self.desc_encoding(desc_neg, desc_neg_len)
         anchor_sim = self.similarity(code_repr, desc_anchor_repr)
-        neg_sim = self.similarity(code_repr, desc_neg_repr) # [batch_sz x 1]
 
-        loss = (self.margin+neg_sim-anchor_sim).clamp(min=1e-6).mean()
+        # ----------------------------negcode------------------------------
+        #1
+        negrelative_par_mask = negrelative_par_ids == 0
+        negrelative_bro_mask = negrelative_bro_ids == 0
+        negsemantic_mask = negsemantic_ids == 0
+        negcode_mask = relative_mask([negrelative_par_mask, negrelative_bro_mask, negsemantic_mask], 6)
+        negcode_repr = self.code_encoding(negcode, negrelative_par_ids, negrelative_bro_ids, negsemantic_ids,
+                                          negcode_mask)
+        neg_sim1 = self.similarity(negcode_repr, desc_anchor_repr)
+        #2
+        negrelative_par_mask2 = negrelative_par_ids2 == 0
+        negrelative_bro_mask2 = negrelative_bro_ids2 == 0
+        negsemantic_mask2 = negsemantic_ids2 == 0
+        negcode_mask2 = relative_mask([negrelative_par_mask2, negrelative_bro_mask2, negsemantic_mask2], 6)
+        negcode_repr2 = self.code_encoding(negcode2, negrelative_par_ids2, negrelative_bro_ids2, negsemantic_ids2,
+                                          negcode_mask2)
+        neg_sim2 = self.similarity(negcode_repr2, desc_anchor_repr)
+        #3
+        negrelative_par_mask3 = negrelative_par_ids3 == 0
+        negrelative_bro_mask3 = negrelative_bro_ids3 == 0
+        negsemantic_mask3 = negsemantic_ids3 == 0
+        negcode_mask3 = relative_mask([negrelative_par_mask3, negrelative_bro_mask3, negsemantic_mask3], 6)
+        negcode_repr3 = self.code_encoding(negcode3, negrelative_par_ids3, negrelative_bro_ids3, negsemantic_ids3,
+                                          negcode_mask3)
+        neg_sim3 = self.similarity(negcode_repr3, desc_anchor_repr)
+
+        neg_sim = torch.stack((neg_sim1, neg_sim2, neg_sim3), 0)
+        neg_simmean = neg_sim.mean(0)
+
+        # print("pos:")
+        # print(anchor_sim)
+        # print("neg:")
+        # print(neg_sim)
+        loss = (self.margin+neg_simmean-anchor_sim).clamp(min=1e-6).mean()
+
+        #test if no neg what happened
+        # loss = (self.margin- anchor_sim).clamp(min=1e-6).mean()
             #print("0")
             #print("neg:")
             #print(neg_sim)
@@ -159,8 +196,7 @@ class JointEmbeder(nn.Module):
         # neg_sim = self.similarity(code_repr, desc_neg_repr)  # [batch_sz x 1]
 
         return anchor_sim
-    def getcodevec(self, code, relative_par_ids, relative_bro_ids, semantic_ids, desc_anchor, desc_anchor_len, desc_neg,
-                desc_neg_len):
+    def getcodevec(self, code, relative_par_ids, relative_bro_ids, semantic_ids, negcode, negrelative_par_ids, negrelative_bro_ids, negsemantic_ids,negcode2, negrelative_par_ids2, negrelative_bro_ids2, negsemantic_ids2,negcode3, negrelative_par_ids3, negrelative_bro_ids3, negsemantic_ids3, desc_anchor, desc_anchor_len, desc_neg, desc_neg_len):
         batch_size = code.size(0)
         rand = random.randint(0, 1)
         # 0:neg   1:pos
@@ -176,8 +212,7 @@ class JointEmbeder(nn.Module):
         anchor_sim = self.similarity(code_repr, desc_anchor_repr)
 
         return code_repr
-    def getdescvec(self, code, relative_par_ids, relative_bro_ids, semantic_ids, desc_anchor, desc_anchor_len, desc_neg,
-                desc_neg_len):
+    def getdescvec(self, code, relative_par_ids, relative_bro_ids, semantic_ids, negcode, negrelative_par_ids, negrelative_bro_ids, negsemantic_ids,negcode2, negrelative_par_ids2, negrelative_bro_ids2, negsemantic_ids2,negcode3, negrelative_par_ids3, negrelative_bro_ids3, negsemantic_ids3, desc_anchor, desc_anchor_len, desc_neg, desc_neg_len):
         batch_size = code.size(0)
         rand = random.randint(0, 1)
         # 0:neg   1:pos

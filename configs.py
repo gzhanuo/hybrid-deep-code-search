@@ -36,11 +36,11 @@ def config_JointEmbeder():
             'vocab_desc':'vocab.desc.json',
                     
         #training_params            
-            'batch_size': 32,
+            'batch_size': 1,
             'chunk_size':200000,
-            'nb_epoch': 15,
+            'nb_epoch': 500,
             #'optimizer': 'adam',
-            'learning_rate':1.08e-4,
+            'learning_rate':2.08e-4,
             'adam_epsilon':1e-8,
             'warmup_steps':5000,
             'fp16': False,
@@ -64,7 +64,7 @@ def config_JointEmbeder():
             'h': 6,
             'num_features': 3,
             'max_simple_name_len': 30,
-            'dropout': 0.2,
+            'dropout': 0.1,
 
 
 
